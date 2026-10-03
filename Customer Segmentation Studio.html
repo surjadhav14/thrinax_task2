@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Customer Segmentation Studio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mut:#667085;--line:#e4e7ec;--a:#2f6fed;--good:#0b8a5f;--bad:#d6336c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#171b22;--ink:#eef1f6;--mut:#98a2b3;--line:#262c36;--a:#6b9bff;--good:#38d9a9;--bad:#ff7aa8}}
+:root[data-theme="dark"]{--bg:#0e1116;--card:#171b22;--ink:#eef1f6;--mut:#98a2b3;--line:#262c36;--a:#6b9bff;--good:#38d9a9;--bad:#ff7aa8}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 16px 40px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+h1{font-size:20px;margin:0}h1 small{display:block;font-weight:400;color:var(--mut);font-size:12px;margin-top:2px}
+.btns,.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button,select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 11px;cursor:pointer}
+button.p{background:var(--a);border-color:var(--a);color:#fff}
+.chip{border-radius:999px;padding:4px 12px;font-size:13px}.chip.on{background:var(--a);border-color:var(--a);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.ctl{display:grid;gap:10px;margin-bottom:14px}.lbl{color:var(--mut);font-size:12px;min-width:70px}
+input[type=range]{width:180px;accent-color:var(--a)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.kpi .t{color:var(--mut);font-size:12px}.kpi .v{font-size:24px;font-weight:650;margin:2px 0}.kpi .d{font-size:12px;color:var(--mut)}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-bottom:12px}
+.c12{grid-column:span 12}.c8{grid-column:span 8}.c4{grid-column:span 4}
+@media(max-width:820px){.c8,.c4{grid-column:span 12}}
+h2{font-size:14px;margin:0 0 10px}.ch{position:relative;height:300px}.ch.s{height:260px}
+.segs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.seg{border-top:4px solid var(--c)}.seg h3{margin:0;font-size:15px}.seg .sz{color:var(--mut);font-size:12px;margin-bottom:6px}
+.seg p{margin:6px 0;font-size:13px}.seg .act{background:color-mix(in srgb,var(--c) 12%,transparent);border-radius:8px;padding:6px 8px}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:480px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}th{color:var(--mut);font-weight:500;font-size:12px}
+#status{color:var(--mut);font-size:12px;margin-bottom:8px}.note{color:var(--mut);font-size:12px;margin:8px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Customer Segmentation Studio<small id="src">Sample data · k-means clustering on standardized features</small></h1>
+  <div class="btns">
+    <button class="p" id="up">Import Excel / CSV</button>
+    <button id="smp">Download sample CSV</button>
+    <button id="rst">Reset</button>
+    <input type="file" id="file" accept=".csv,.xlsx,.xls" hidden>
+  </div>
+</header>
+<div id="status"></div>
+<div class="card ctl">
+  <div class="row"><span class="lbl">Features</span><span class="row" id="feats"></span></div>
+  <div class="row"><span class="lbl">Segments (k)</span><input type="range" id="k" min="2" max="6" value="4"><b id="kv">4</b>
+    <span class="lbl" style="margin-left:14px">Plot X</span><select id="px"></select><span class="lbl">Plot Y</span><select id="py"></select></div>
+</div>
+<div class="kpis" id="kpis"></div>
+<div class="grid">
+  <div class="card c8"><h2>Segment map</h2><div class="ch"><canvas id="sc"></canvas></div></div>
+  <div class="card c4"><h2>Choosing k: elbow curve</h2><div class="ch"><canvas id="el"></canvas></div><p class="note">Look for the bend where extra segments stop reducing inertia much.</p></div>
+</div>
+<div class="segs" id="segs" style="margin-bottom:12px"></div>
+<div class="grid">
+  <div class="card c8"><h2>Segment profile (colour = vs. average customer)</h2><div class="tw"><table id="tbl"></table></div></div>
+  <div class="card c4" id="catcard"><h2>Category preference by segment</h2><div class="ch s"><canvas id="cat"></canvas></div></div>
+</div>
+</div>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var PAL=['#2f6fed','#12b886','#f59f00','#e8590c','#7048e8','#e64980'];
+var D=null,sel=[],charts={};
+function rng(s){return function(){s|=0;s=s+0x6D2B79F5|0;var t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* ---------- sample ---------- */
+function sample(){
+  var r=rng(11),g=function(m,s){return m+s*Math.sqrt(-2*Math.log(r()+1e-9))*Math.cos(6.2832*r())};
+  var CATS=['Electronics','Fashion','Home','Beauty','Grocery'];
+  var G=[[60,[36,5],[95,15],[18,8],[20,4],[4200,900],[.4,.15,.2,.15,.1]],
+         [90,[23,3],[35,8],[45,25],[5,2],[450,150],[.15,.5,.05,.25,.05]],
+         [70,[50,6],[60,12],[230,60],[4,2],[700,250],[.1,.2,.4,.1,.2]],
+         [80,[37,8],[48,10],[28,15],[13,3],[820,180],[.05,.1,.2,.05,.6]]];
+  var out=[],id=1000;
+  G.forEach(function(q){for(var i=0;i<q[0];i++){
+    var u=r(),c=0,a=0;for(c=0;c<5;c++){a+=q[6][c];if(u<=a)break}
+    out.push({CustomerID:'C'+(id++),Age:Math.max(18,Math.round(g(q[1][0],q[1][1]))),Gender:r()<.5?'Female':'Male',
+      Income:Math.max(12,Math.round(g(q[2][0],q[2][1]))),RecencyDays:Math.max(1,Math.round(g(q[3][0],q[3][1]))),
+      Orders:Math.max(1,Math.round(g(q[4][0],q[4][1]))),TotalSpend:Math.max(40,Math.round(g(q[5][0],q[5][1]))),FavoriteCategory:CATS[Math.min(c,4)]})}});
+  return out;
+}
+
+/* ---------- import ---------- */
+function nk(k){return String(k).toLowerCase().replace(/[^a-z0-9]/g,'')}
+function parseCSV(t){var rows=[],row=[],f='',q=false;
+  for(var i=0;i<t.length;i++){var c=t[i];
+    if(q){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c=='"')q=true;else if(c==','){row.push(f);f=''}
+    else if(c=='\n'||c=='\r'){if(c=='\r'&&t[i+1]=='\n')i++;row.push(f);f='';if(row.length>1||row[0]!=='')rows.push(row);row=[]}else f+=c}
+  if(f!==''||row.length){row.push(f);rows.push(row)}
+  var h=rows.shift().map(function(x){return x.trim()});
+  return rows.map(function(r){var o={};h.forEach(function(k,i){o[k]=r[i]});return o})}
+function build(objs,name){
+  if(objs.length<10)throw new Error('Need at least 10 customer rows.');
+  var keys=Object.keys(objs[0]),find=function(a){return keys.filter(function(k){return a.indexOf(nk(k))>-1})[0]};
+  var idc=find(['customerid','id','custid','customer','customerno']),gc=find(['gender','sex']),cc=find(['category','favoritecategory','topcategory','preferredcategory','favcategory']);
+  var num=keys.filter(function(k){if(k===idc||k===gc||k===cc)return false;
+    var ok=0;objs.forEach(function(o){var v=parseFloat(String(o[k]).replace(/[^0-9.\-]/g,''));if(!isNaN(v)&&o[k]!=='')ok++});return ok>=objs.length*.9});
+  if(num.length<2)throw new Error('Need at least 2 numeric columns (e.g. age, income, recency, frequency, spend).');
+  var mean={};num.forEach(function(k){var s=0,n=0;objs.forEach(function(o){var v=parseFloat(String(o[k]).replace(/[^0-9.\-]/g,''));if(!isNaN(v)){s+=v;n++}});mean[k]=s/n});
+  var rows=objs.map(function(o,i){var v={};num.forEach(function(k){var x=parseFloat(String(o[k]).replace(/[^0-9.\-]/g,''));v[k]=isNaN(x)?mean[k]:x});
+    return {id:idc?o[idc]:i+1,v:v,g:gc?String(o[gc]):null,c:cc?String(o[cc]):null}});
+  var role=function(t){return num.filter(function(k){var n=nk(k);return t.some(function(x){return n.indexOf(x)>-1})})[0]};
+  D={name:name,rows:rows,num:num,hasG:!!gc,hasC:!!cc,
+     rec:role(['recen','lastpurchase','dayssince']),frq:role(['freq','orders','purchases','visits']),mon:role(['spend','monetary','revenue','ltv','amount'])};
+  var def=[D.rec,D.frq,D.mon].filter(Boolean);sel=(def.length>=2?def.concat(num.filter(function(k){return def.indexOf(k)<0&&/age|income/i.test(k)})):num.slice(0,4));
+  var opts=num.map(function(k){return '<option>'+esc(k)+'</option>'}).join('');
+  $('px').innerHTML=opts;$('py').innerHTML=opts;
+  $('px').value=D.frq||num[0];$('py').value=D.mon||num[1];
+  $('src').textContent=name+' · '+rows.length+' customers · k-means on standardized features';
+  drawFeats();run();
+}
+function load(f){var ext=f.name.split('.').pop().toLowerCase(),rd=new FileReader();
+  rd.onload=function(e){try{var o;if(ext==='csv')o=parseCSV(e.target.result);else{var wb=XLSX.read(e.target.result,{type:'array'});o=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{raw:true})}
+    build(o,f.name);status('Loaded '+o.length+' rows.')}catch(er){status(er.message,1)}};
+  ext==='csv'?rd.readAsText(f):rd.readAsArrayBuffer(f)}
+function status(t,b){var s=$('status');s.textContent=t;s.style.color=b?'var(--bad)':'var(--mut)'}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function dl(){var d=sample(),L=['CustomerID,Age,Gender,Income,RecencyDays,Orders,TotalSpend,FavoriteCategory'];
+  d.forEach(function(r){L.push([r.CustomerID,r.Age,r.Gender,r.Income,r.RecencyDays,r.Orders,r.TotalSpend,r.FavoriteCategory].join(','))});
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([L.join('\n')],{type:'text/csv'}));a.download='sample-customers.csv';a.click()}
+
+/* ---------- k-means ---------- */
+function d2(a,b){var s=0;for(var i=0;i<a.length;i++){var t=a[i]-b[i];s+=t*t}return s}
+function kmeans(X,k,seed){
+  var best=null,R=rng(seed);
+  for(var rs=0;rs<6;rs++){
+    var C=[X[Math.floor(R()*X.length)].slice()];
+    while(C.length<k){var ds=X.map(function(x){return Math.min.apply(null,C.map(function(c){return d2(x,c)}))}),tot=ds.reduce(function(a,b){return a+b},0),u=R()*tot,j=0;
+      for(;j<ds.length-1;j++){u-=ds[j];if(u<=0)break}C.push(X[j].slice())}
+    var lab=new Array(X.length).fill(-1),ch=true,it=0;
+    while(ch&&it++<60){ch=false;
+      X.forEach(function(x,i){var b=0,bd=1e18;for(var c=0;c<k;c++){var d=d2(x,C[c]);if(d<bd){bd=d;b=c}}if(lab[i]!==b){lab[i]=b;ch=true}});
+      for(var c=0;c<k;c++){var m=new Array(X[0].length).fill(0),n=0;X.forEach(function(x,i){if(lab[i]===c){n++;for(var j=0;j<m.length;j++)m[j]+=x[j]}});
+        if(n)C[c]=m.map(function(v){return v/n})}}
+    var inr=0;X.forEach(function(x,i){inr+=d2(x,C[lab[i]])});
+    if(!best||inr<best.inr)best={lab:lab,C:C,inr:inr}}
+  return best}
+function silhouette(X,lab,k){
+  var idx=X.map(function(_,i){return i});if(idx.length>700){var R=rng(5);idx=idx.sort(function(){return R()-.5}).slice(0,700)}
+  var s=0;idx.forEach(function(i){var sum=new Array(k).fill(0),cnt=new Array(k).fill(0);
+    idx.forEach(function(j){if(j!==i){var d=Math.sqrt(d2(X[i],X[j]));sum[lab[j]]+=d;cnt[lab[j]]++}});
+    var a=cnt[lab[i]]?sum[lab[i]]/cnt[lab[i]]:0,b=1e18;
+    for(var c=0;c<k;c++)if(c!==lab[i]&&cnt[c])b=Math.min(b,sum[c]/cnt[c]);
+    s+=(b-a)/Math.max(a,b)||0});
+  return s/idx.length}
+
+/* ---------- main ---------- */
+function stat(arr){var m=arr.reduce(function(a,b){return a+b},0)/arr.length,v=arr.reduce(function(a,b){return a+(b-m)*(b-m)},0)/arr.length;return{m:m,s:Math.sqrt(v)||1}}
+function fmt(v){return Math.abs(v)>=100?Math.round(v).toLocaleString():(Math.round(v*10)/10).toString()}
+function drawFeats(){var el=$('feats');el.innerHTML='';
+  D.num.forEach(function(k){var b=document.createElement('button');b.className='chip'+(sel.indexOf(k)>-1?' on':'');b.textContent=k;
+    b.onclick=function(){var i=sel.indexOf(k);if(i>-1){if(sel.length>2)sel.splice(i,1)}else sel.push(k);drawFeats();run()};el.appendChild(b)})}
+function mk(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart($(id),cfg)}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+var NAMES={champ:['Champions','Reward and retain: early access, loyalty perks, referral asks.'],
+ loyal:['Loyal regulars','Grow basket size with bundles and cross-sell.'],
+ risk:['At risk / lapsing','Win-back campaign: personalised offer, "we miss you" email.'],
+ newb:['New & promising','Nurture: onboarding series and a second-purchase incentive.'],
+ core:['Core customers','Maintain with steady communication; test upsells.']};
+function run(){
+  var k=+$('kv').textContent,rows=D.rows,all=D.num,st={};
+  all.forEach(function(c){st[c]=stat(rows.map(function(r){return r.v[c]}))});
+  var X=rows.map(function(r){return sel.map(function(c){return(r.v[c]-st[c].m)/st[c].s})});
+  var res=kmeans(X,k,3),sil=silhouette(X,res.lab,k);
+  var el=[];for(var q=1;q<=8;q++)el.push(kmeans(X,q,3).inr);
+  /* segments */
+  var S=[];for(var c=0;c<k;c++)S.push({id:c,rows:[]});
+  rows.forEach(function(r,i){S[res.lab[i]].rows.push(r)});
+  S=S.filter(function(s){return s.rows.length});
+  S.forEach(function(s){s.mean={};all.forEach(function(c){s.mean[c]=s.rows.reduce(function(a,r){return a+r.v[c]},0)/s.rows.length});
+    s.z=function(c){return c?(s.mean[c]-st[c].m)/st[c].s:0}});
+  S.sort(function(a,b){return D.mon?b.mean[D.mon]-a.mean[D.mon]:b.rows.length-a.rows.length});
+  var used={};
+  S.forEach(function(s,i){var zr=s.z(D.rec),zf=s.z(D.frq),zm=s.z(D.mon),key='core';
+    if(D.rec||D.frq||D.mon){
+      if(zm>.5&&zf>.2&&zr<=.3)key='champ';else if(zm>.3||zf>.5)key='loyal';else if(zr>.5&&zf<.2)key='risk';else if(zr<-.3&&zf<.2)key='newb'}
+    var nm=(D.rec||D.frq||D.mon)?NAMES[key][0]:'Segment '+(i+1);if(used[nm])nm+=' '+(used[nm]+1);used[nm]=(used[nm]||0)+1;
+    s.name=nm;s.act=(D.rec||D.frq||D.mon)?NAMES[key][1]:'Compare the profile table to find what sets this group apart.';s.col=PAL[i%PAL.length]});
+  render(S,st,sil,el,res,k);
+}
+function render(S,st,sil,el,res,k){
+  var n=D.rows.length,q=sil>.5?'strong':sil>.25?'reasonable':'weak';
+  var tspend=D.mon?D.rows.reduce(function(a,r){return a+r.v[D.mon]},0):null,top=S[0];
+  $('kpis').innerHTML=[['Customers',n.toLocaleString(),D.num.length+' numeric attributes'],
+   ['Segments',S.length,'using '+sel.length+' features'],
+   ['Silhouette score',sil.toFixed(2),q+' separation'],
+   [D.mon?'Top segment share of '+esc(D.mon):'Largest segment',D.mon?(top.rows.reduce(function(a,r){return a+r.v[D.mon]},0)/tspend*100).toFixed(0)+'%':Math.max.apply(null,S.map(function(s){return s.rows.length})),
+     D.mon?esc(top.name)+' ('+(top.rows.length/n*100).toFixed(0)+'% of customers)':'customers']
+  ].map(function(x){return'<div class="card kpi"><div class="t">'+x[0]+'</div><div class="v">'+x[1]+'</div><div class="d">'+x[2]+'</div></div>'}).join('');
+  var ink=css('--mut'),line=css('--line');Chart.defaults.color=ink;
+  var X=$('px').value,Y=$('py').value;
+  var ds=S.map(function(s){return{label:s.name,data:s.rows.map(function(r){return{x:r.v[X],y:r.v[Y]}}),backgroundColor:s.col+'99',borderColor:s.col,pointRadius:3.5}});
+  ds=ds.concat(S.map(function(s){return{label:s.name+' centre',data:[{x:s.mean[X],y:s.mean[Y]}],backgroundColor:s.col,borderColor:css('--ink'),borderWidth:2,pointStyle:'rectRot',pointRadius:9}}));
+  mk('sc',{type:'scatter',data:{datasets:ds},options:{maintainAspectRatio:false,scales:{x:{title:{display:true,text:X},grid:{color:line}},y:{title:{display:true,text:Y},grid:{color:line}}},
+    plugins:{legend:{position:'bottom',labels:{filter:function(i){return i.text.indexOf(' centre')<0}}}}}});
+  mk('el',{type:'line',data:{labels:[1,2,3,4,5,6,7,8],datasets:[{data:el,borderColor:css('--a'),backgroundColor:css('--a'),tension:.25,
+    pointRadius:el.map(function(_,i){return i+1===k?7:3})}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},
+    scales:{x:{title:{display:true,text:'k'},grid:{display:false}},y:{title:{display:true,text:'Inertia'},grid:{color:line},ticks:{display:false}}}}});
+  /* cards */
+  $('segs').innerHTML=S.map(function(s){
+    var g='',c='';
+    if(D.hasG){var m={};s.rows.forEach(function(r){m[r.g]=(m[r.g]||0)+1});g=Object.keys(m).sort(function(a,b){return m[b]-m[a]}).map(function(x){return esc(x)+' '+Math.round(m[x]/s.rows.length*100)+'%'}).join(' · ')}
+    if(D.hasC){var cm={};s.rows.forEach(function(r){cm[r.c]=(cm[r.c]||0)+1});var tc=Object.keys(cm).sort(function(a,b){return cm[b]-cm[a]})[0];c='Prefers <b>'+esc(tc)+'</b> ('+Math.round(cm[tc]/s.rows.length*100)+'%)'}
+    var feats=sel.slice(0,4).map(function(f){return esc(f)+': <b>'+fmt(s.mean[f])+'</b>'}).join(' · ');
+    return'<div class="card seg" style="--c:'+s.col+'"><h3>'+esc(s.name)+'</h3><div class="sz">'+s.rows.length+' customers · '+Math.round(s.rows.length/D.rows.length*100)+'%</div><p>'+feats+'</p>'+(g?'<p>'+g+'</p>':'')+(c?'<p>'+c+'</p>':'')+'<p class="act">'+esc(s.act)+'</p></div>'}).join('');
+  /* heatmap */
+  $('tbl').innerHTML='<tr><th>Segment</th>'+D.num.map(function(c){return'<th>'+esc(c)+'</th>'}).join('')+'</tr>'+
+   S.map(function(s){return'<tr><td><span style="color:'+s.col+'">●</span> '+esc(s.name)+'</td>'+D.num.map(function(c){var z=Math.max(-1.5,Math.min(1.5,s.z(c))),a=Math.round(Math.abs(z)/1.5*45);
+     return'<td style="background:color-mix(in srgb,'+(z>=0?'var(--good)':'var(--bad)')+' '+a+'%,transparent)">'+fmt(s.mean[c])+'</td>'}).join('')+'</tr>'}).join('')+
+   '<tr><td><b>All customers</b></td>'+D.num.map(function(c){return'<td><b>'+fmt(st[c].m)+'</b></td>'}).join('')+'</tr>';
+  /* category */
+  $('catcard').style.display=D.hasC?'':'none';
+  if(D.hasC){var cats={};D.rows.forEach(function(r){cats[r.c]=1});var cl=Object.keys(cats).sort();
+    mk('cat',{type:'bar',data:{labels:S.map(function(s){return s.name}),datasets:cl.map(function(cn,i){return{label:cn,backgroundColor:PAL[i%PAL.length],
+      data:S.map(function(s){return s.rows.filter(function(r){return r.c===cn}).length/s.rows.length*100})}})},
+      options:{indexAxis:'y',maintainAspectRatio:false,scales:{x:{stacked:true,max:100,ticks:{callback:function(v){return v+'%'}},grid:{color:line}},y:{stacked:true,grid:{display:false}}},
+      plugins:{legend:{position:'bottom',labels:{boxWidth:10}},tooltip:{callbacks:{label:function(c){return c.dataset.label+': '+c.parsed.x.toFixed(0)+'%'}}}}}})}
+}
+
+/* ---------- wiring ---------- */
+$('up').onclick=function(){$('file').click()};
+$('file').onchange=function(e){if(e.target.files[0])load(e.target.files[0]);e.target.value=''};
+$('smp').onclick=dl;
+$('rst').onclick=function(){build(sample(),'Sample data');status('')};
+$('k').oninput=function(e){$('kv').textContent=e.target.value;run()};
+$('px').onchange=$('py').onchange=run;
+if(window.matchMedia)window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',run);
+build(sample(),'Sample data');
+})();
+</script>
+</body>
+</html>
